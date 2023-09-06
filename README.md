@@ -66,7 +66,7 @@ __[2] An Anndata h5ad file for scRNA-seq data:__ This file must includes express
 
 ### Step 2. Implement RedeFISH
 
-See <a href="https://github.com/Roshan1992/Redesics/blob/main/example.ipynb" target="_blank">example</a> for implementing RedeFISH on imaging-based single-cell ST platforms.
+See <a href="https://github.com/Roshan1992/RedeFISH/blob/main/example.ipynb" target="_blank">example</a> for implementing RedeFISH on imaging-based single-cell ST platforms.
 
 ### Step 3. Output
 
