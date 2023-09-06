@@ -1,8 +1,7 @@
 # RedeFISH
 Automatic Cell Alignment in Ultra-large Spatial and Single-cell Transcriptomics Data
 
-![image](https://github.com/Roshan1992/RedeFISH/assets/11591480/1488d0b0-c704-4523-83fe-8e954d9b828c)
-
+![1A](https://github.com/Roshan1992/RedeFISH/assets/11591480/f723d5c4-05b5-4211-8ad3-5a50d6f31f83)
 
 
 
