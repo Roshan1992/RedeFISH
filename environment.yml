@@ -3,7 +3,7 @@ dependencies:
   - python=3.9
   - pip=21.2.4
   - pip:
-    - numpy==1.20.3
+    - numpy==1.23.0
     - pandas==2.0.3
     - scikit-misc==0.1.4
     - scikit-learn==1.0.2
