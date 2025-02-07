@@ -1,12 +1,12 @@
 # Component Name: example
-# Version:        20221118
+# Version:        20250207
 # Language: python3
-# Latest Revision Time: 2022/11/18
+# Latest Revision Time: 2025/02/07
 #
 # License: To-be-decided
 # Licensed Material - Property of CPNL.
 #
-# (c) Copyright CPNL. 2022
+# (c) Copyright CPNL. 2025
 #
 # Address:
 # 28#, ZGC Science and Technology Park, Changping District, Beijing, China
@@ -14,11 +14,11 @@
 # Author: Zhong Yunshan
 # E-Mail: 327922729@qq.com
 #
-# Description: Example of Redesics v1
+# Description: Example of RedeFISH V1.1.0
 #
 # Change History:
 # Date         Author            Description
-# 2022/11/18   Zhong Yunshan     Release v1.0
+# 2025/02/07   Zhong Yunshan     Release V1.1.0
 # ------------------------------------------------------------------------------------
 
 
