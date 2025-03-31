@@ -1,7 +1,8 @@
 # RedeFISH
-Automatic Cell Alignment in Ultra-large Spatial and Single-cell Transcriptomics Data
+Cell segmentation and gene imputation for imaging-based spatial transcriptomics
 
-![image](https://github.com/Roshan1992/RedeFISH/assets/11591480/4a43a319-c0d7-4f64-a800-8e84a5975a41)
+![Figure1](https://github.com/user-attachments/assets/03a5ff44-765e-45df-a2a0-0b6af95fbc72)
+
 
 
 
