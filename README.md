@@ -1,7 +1,8 @@
 # RedeFISH
 Automatic Cell Alignment in Ultra-large Spatial and Single-cell Transcriptomics Data
 
-![workflow](https://user-images.githubusercontent.com/11591480/236590851-2abd1da4-8900-42a7-813e-35ec816c5129.png)
+![image](https://github.com/Roshan1992/RedeFISH/assets/11591480/4a43a319-c0d7-4f64-a800-8e84a5975a41)
+
 
 
 
@@ -64,11 +65,9 @@ __[2] An Anndata h5ad file for scRNA-seq data:__ This file must includes express
 
 ![image](https://user-images.githubusercontent.com/11591480/236605176-6551c703-e19b-42f0-9c43-4022e41b7eb4.png)
 
-Alternatively, example data can be downloaded <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a>.
-
 ### Step 2. Implement RedeFISH
 
-See <a href="https://github.com/Roshan1992/RedeFISH/blob/main/example.py" target="_blank">example</a> for implementing RedeFISH on imaging-based single-cell ST platforms.
+See <a href="https://github.com/Roshan1992/RedeFISH/blob/main/example.ipynb" target="_blank">example</a> for implementing RedeFISH on imaging-based single-cell ST platforms.
 
 ### Step 3. Output
 
@@ -83,15 +82,15 @@ The contents of the output directory in tree format will be displayed as describ
     └── transcripts_classification.csv
 ```
 
-__[1] cell_expression.h5ad:__ Expression matrix of segmented cells.
+__[1] cell_expression.h5ad:__ Expression matrix of identified cells.
 
-__[2] cell_expression.predict.h5ad:__ Whole-transcriptome expression profiles of segmented cells through imputation.
+__[2] cell_expression.predict.h5ad:__ Whole-transcriptome expression profiles of identified cells through imputation.
 
-__[3] cell_feature.csv:__ A csv file includes features of segmented cells (cell center coordinates, girth, area, roundness, mRNA_count, cell type by label transferring). The index refers to cell IDs.
+__[3] cell_feature.csv:__ A csv file includes features of identified cells (cell center coordinates, girth, area, roundness, mRNA_count, cell type by label transferring). The index refers to cell IDs.
 
 __[4] transcripts_classification.csv:__ The result for transcript assignments. It includes transcript coordinates (column: x and y) and corresponding cell IDs (column: mRNA_class). Positive interger in __mRNA_class__ column refer to non-noise assignment, while zero indicates transcript classified as background noise.
 
-__[5] cell_boundary.h5:__ A h5 file contains polygonal regions of cell boundary for segmented cells.
+__[5] cell_boundary.h5:__ A h5 file contains polygonal regions of cell boundary for identified cells.
 
 
 
