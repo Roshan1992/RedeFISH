@@ -1,7 +1,7 @@
 # RedeFISH
 Cell Segmentation as Strategic Decision Making
 
-(![Figure 1](https://github.com/user-attachments/assets/8ba4e0be-d7bd-44c0-bc6c-ed348a65e9dc)
+![Figure 1](https://github.com/user-attachments/assets/8ba4e0be-d7bd-44c0-bc6c-ed348a65e9dc)
 
 
 
@@ -65,13 +65,14 @@ __[2] An Anndata h5ad file for scRNA-seq data:__ This file must includes express
 
 ![image](https://user-images.githubusercontent.com/11591480/236605176-6551c703-e19b-42f0-9c43-4022e41b7eb4.png)
 
-Click <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a> to access the Mouse Ileum dataset, including spatial transcriptomics and single-cell example data
+Click <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a> to access the Mouse Ileum dataset, including spatial transcriptomics and single-cell example data.
 
 ### Step 2. Implement RedeFISH
 
-See <a href="https://github.com/Roshan1992/Redesics/blob/main/example.ipynb" target="_blank">example</a> for implementing RedeFISH on imaging-based single-cell ST platforms.
+First, unzip the downloaded example data。
 
-See <a href="https://github.com/Roshan1992/Redesics/blob/main/example_for_Stereo_seq.ipynb" target="_blank">example_for_Stereo_seq</a> for implementing RedeFISH on Stereo-seq platforms.
+Then, see <a href="https://github.com/Roshan1992/RedeFISH/blob/main/example.py" target="_blank">example</a> for implementing RedeFISH on imaging-based ST datasets.
+
 
 ### Step 3. Output
 
