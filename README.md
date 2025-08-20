@@ -1,8 +1,7 @@
 # RedeFISH
 Cell Segmentation as Strategic Decision Making
 
-![workflow](![Figure 1](https://github.com/user-attachments/assets/8ba4e0be-d7bd-44c0-bc6c-ed348a65e9dc)
-)
+(![Figure 1](https://github.com/user-attachments/assets/8ba4e0be-d7bd-44c0-bc6c-ed348a65e9dc)
 
 
 
