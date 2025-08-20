@@ -65,11 +65,11 @@ __[2] An Anndata h5ad file for scRNA-seq data:__ This file must includes express
 
 ![image](https://user-images.githubusercontent.com/11591480/236605176-6551c703-e19b-42f0-9c43-4022e41b7eb4.png)
 
-Click <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a> to access the Mouse Ileum dataset, including spatial transcriptomics and single-cell example data.
+Click <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a> to access the example data for Mouse Ileum dataset, including ST and scRNA-seq.
 
 ### Step 2. Implement RedeFISH
 
-First, unzip the downloaded example data。
+First, unzip the downloaded example data.
 
 Then, see <a href="https://github.com/Roshan1992/RedeFISH/blob/main/example.py" target="_blank">example</a> for implementing RedeFISH on imaging-based ST datasets.
 
