@@ -1,13 +1,14 @@
 # RedeFISH
-Automatic Cell Alignment in Ultra-large Spatial and Single-cell Transcriptomics Data
+Cell Segmentation as Strategic Decision Making
 
-![workflow](https://user-images.githubusercontent.com/11591480/236590851-2abd1da4-8900-42a7-813e-35ec816c5129.png)
+![workflow](![Figure 1](https://github.com/user-attachments/assets/8ba4e0be-d7bd-44c0-bc6c-ed348a65e9dc)
+)
 
 
 
 ## Overview
 
-RedeFISH is an automatic tool for cell alignment in imaging-based spatial transcriptomics (ST) and scRNA-seq data through deep reinforcement learning. This method aims to identify functional-defined cells in ST data that exhibit the highest degree of expression similarity with cells in scRNA-seq data. Through the incorporation of scRNA-seq data, this method additionally undertakes the task of inferring whole-transcriptome expression profiles for the aforementioned identified cells. RedeFISH is a python package written in Python 3.9 and pytorch 1.12. It allows GPU to accelerate computational efficiency.
+RedeFISH is a reinforcement learning-based tool for cell segmentation and gene imputation in imaging-based spatial transcriptomics (ST). It leverages scRNA-seq to guide transcript assignment and cell boundary delineation, learning an optimal segmentation strategy directly from ST data without stained images, thereby ensuring robustness to staining variability and tissue heterogeneity. RedeFISH is a python package written in Python 3.9 and pytorch 1.12. It allows GPU to accelerate computational efficiency.
 
 
 ## Installation
@@ -49,6 +50,7 @@ If GPU not available:
 ```
     pip install torch==1.12.1+cpu torchvision==0.13.1+cpu torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cpu
 ```
+Note: ensure that the corresponding PyTorch installation command matches your system's CUDA version
 
 ## Quick Start
 
@@ -64,11 +66,13 @@ __[2] An Anndata h5ad file for scRNA-seq data:__ This file must includes express
 
 ![image](https://user-images.githubusercontent.com/11591480/236605176-6551c703-e19b-42f0-9c43-4022e41b7eb4.png)
 
+Click <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a> to access the Mouse Ileum dataset, including spatial transcriptomics and single-cell example data
+
 ### Step 2. Implement RedeFISH
 
-See <a href="https://github.com/Roshan1992/Redesics/blob/main/example.ipynb" target="_blank">example</a> for implementing Redesics on imaging-based single-cell ST platforms.
+See <a href="https://github.com/Roshan1992/Redesics/blob/main/example.ipynb" target="_blank">example</a> for implementing RedeFISH on imaging-based single-cell ST platforms.
 
-See <a href="https://github.com/Roshan1992/Redesics/blob/main/example_for_Stereo_seq.ipynb" target="_blank">example_for_Stereo_seq</a> for implementing Redesics on Stereo-seq platforms.
+See <a href="https://github.com/Roshan1992/Redesics/blob/main/example_for_Stereo_seq.ipynb" target="_blank">example_for_Stereo_seq</a> for implementing RedeFISH on Stereo-seq platforms.
 
 ### Step 3. Output
 
