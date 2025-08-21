@@ -1,6 +1,6 @@
 # Component Name: example
 # Version:        v1.1.0
-# Language: python3
+# Language: Python3
 # Latest Revision Time: 2025/08/20
 #
 # License: To-be-decided
@@ -34,6 +34,7 @@ import os
 
 
 device='cuda'
+# r denotes the prior cell radius, typically set to approximately 6.5 µm, which corresponds to about 30 pixels in this dataset.
 r = 30
 st_data = pd.read_csv("example_data/st_data.csv")
 sc_data = sc.read("example_data/sc_data.h5ad")
