@@ -69,7 +69,7 @@ __[3] (Optional) An csv file for nuclei boundary prior:__ This file must include
 
 <img width="369" height="219" alt="image" src="https://github.com/user-attachments/assets/28554f25-adb2-4673-8635-c1cf7f562a20" />
 
-Click <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a> to access the example data for Human Breast Cancer and Human Lung Cancer datasets.
+Click <a href="https://drive.google.com/file/d/1Y8Gv69svrGPKwUgeiPb4SKDSIr5DZQNV/view?usp=sharing" target="_blank">here</a> to access the example data for Human Breast Cancer and Human Lung Cancer datasets.
 
 ### Step 2. Implement RedeFISH
 
