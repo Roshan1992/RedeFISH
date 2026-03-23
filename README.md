@@ -7,7 +7,7 @@ Cell Segmentation as Strategic Decision Making
 
 ## Overview
 
-RedeFISH is a reinforcement learning-based tool for cell segmentation and gene imputation in imaging-based spatial transcriptomics (ST). It leverages scRNA-seq to guide transcript assignment and cell boundary delineation, learning an optimal segmentation strategy directly from ST data without stained images, thereby ensuring robustness to staining variability and tissue heterogeneity. RedeFISH is a python package written in Python 3.9 and pytorch 1.12. It allows GPU to accelerate computational efficiency.
+RedeFISH is a reinforcement learning-based tool for cell segmentation and gene imputation in imaging-based spatial transcriptomics (ST). It leverages scRNA-seq to guide transcript assignment and cell boundary delineation, learning an optimal segmentation strategy directly from ST data without stained images, thereby ensuring robustness to staining variability and tissue heterogeneity. RedeFISH is a python package written in Python 3.13 and pytorch 2.6. It allows GPU to accelerate computational efficiency.
 
 
 ## Installation
@@ -43,11 +43,11 @@ RedeFISH is a reinforcement learning-based tool for cell segmentation and gene i
 
 If GPU available (https://pytorch.org/get-started/previous-versions/):
 ```
-    pip install torch==1.12.1+cu116 torchvision==0.13.1+cu116 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu116
+    pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 ```
 If GPU not available:
 ```
-    pip install torch==1.12.1+cpu torchvision==0.13.1+cpu torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cpu
+    pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu 
 ```
 Note: ensure that the corresponding PyTorch installation command matches your system's CUDA version
 
@@ -65,13 +65,17 @@ __[2] An Anndata h5ad file for scRNA-seq data:__ This file must includes express
 
 ![image](https://user-images.githubusercontent.com/11591480/236605176-6551c703-e19b-42f0-9c43-4022e41b7eb4.png)
 
-Click <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a> to access the example data for Mouse Ileum dataset, including ST and scRNA-seq.
+__[3] (Optional) An csv file for nuclei boundary prior:__ This file must includes at least 3 columns, namely __x__, __y__ and corresponding __cell_id__.
+
+Click <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a> to access the example data for Human Breast Cancer and Human Lung Cancer datasets.
 
 ### Step 2. Implement RedeFISH
 
 First, unzip the downloaded example data.
 
-Then, see <a href="https://github.com/Roshan1992/RedeFISH/blob/main/example.py" target="_blank">example</a> for implementing RedeFISH on imaging-based ST datasets.
+[1] see <a href="https://github.com/Roshan1992/RedeFISH/blob/main/example.ipynb" target="_blank">example</a> for implementing RedeFISH using cell location prior.
+
+[2] see <a href="https://github.com/Roshan1992/RedeFISH/blob/main/example_with_nuclear_boundary_prior.ipynb" target="_blank">example</a> for implementing RedeFISH using nuclear boundary prior.
 
 
 ### Step 3. Output
@@ -80,7 +84,7 @@ The contents of the output directory in tree format will be displayed as describ
 
 ```
     Output PATH
-    ├── cell_boundary.h5
+    ├── cell_boundary.csv
     ├── cell_expression.h5ad
     ├── cell_expression.predict.h5ad
     ├── cell_feature.csv
@@ -95,7 +99,7 @@ __[3] cell_feature.csv:__ A csv file includes features of segmented cells (cell 
 
 __[4] transcripts_classification.csv:__ The result for transcript assignments. It includes transcript coordinates (column: x and y) and corresponding cell IDs (column: mRNA_class). Positive interger in __mRNA_class__ column refer to non-noise assignment, while zero indicates transcript classified as background noise.
 
-__[5] cell_boundary.h5:__ A h5 file contains polygonal regions of cell boundary for segmented cells.
+__[5] cell_boundary.csv:__ A csv file contains polygonal regions of cell boundary for segmented cells.
 
 
 

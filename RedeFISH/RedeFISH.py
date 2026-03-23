@@ -5,14 +5,14 @@
 #
 # System:         Linux, Windows
 # Component Name: RedeFISH
-# Version:        20230906
+# Version:        20260317
 # Language: python3
-# Latest Revision Time: 2023/09/06
+# Latest Revision Time: 2026/03/17
 #
 # License: To-be-decided
 # Licensed Material - Property of CPNL.
 #
-# (c) Copyright CPNL. 2023
+# (c) Copyright CPNL. 2026
 #
 # Address:
 # 28#, ZGC Science and Technology Park, Changping District, Beijing, China
@@ -24,7 +24,7 @@
 #
 # Change History:
 # Date         Author            Description
-# 2023/09/06   Zhong Yunshan     Release v1.0.0
+# 2026/03/17   Zhong Yunshan     Release v1.2.0
 # ------------------------------------------------------------------------------------
 
 
@@ -32,7 +32,7 @@ import os
 import time
 import pandas as pd
 import numpy as np
-from scipy import spatial
+from scipy import spatial, interpolate
 import scanpy as sc
 import torch
 import torch.nn as nn
@@ -44,109 +44,20 @@ import warnings
 import alphashape
 import torch.multiprocessing
 import shapely
-from shapely.geometry import Polygon
-
+from shapely.geometry import Polygon, Point, MultiPolygon, MultiPoint
+from shapely.ops import unary_union, voronoi_diagram, nearest_points
 
 #from KMean_KD import KMEANS
 #import .center_selection 
 
 warnings.filterwarnings("ignore")
 
-def calculate_cell_feature_each(each, max_value, mean_x, mean_y, cell_name):
-    
-    """
-    Calculate multiple cell features for each aligned cell.
-
-    Parameters
-    ----------
-    each : Shapely Polygon, required
-        Shapely Polygon of aligned cells.
-        
-    max_value : float, required
-        Maximun of transcripts coordinate
-
-    mean_x : float, required
-        mean x axis of transcripts for each aligned cell
-
-    mean_y : float, required
-        mean y axis of transcripts for each aligned cell
-        
-    cell_name : str, required
-        cell_name
-
-    Returns
-    -------
-    result : dict()
-        Dictionary of cell features for each aligned cell.
-    """
-    
-    cell_feature_this = dict()
-    center_this = np.asarray(each.centroid)
-    
-    boundary = np.asarray(each.boundary)
-    boundary = boundary * max_value
-    boundary[:,0] = boundary[:,0] + mean_x
-    boundary[:,1] = boundary[:,1] + mean_y
-    center_x = center_this[0] * max_value + mean_x
-    center_y = center_this[1] * max_value + mean_y
-    
-    area = each.area * max_value * max_value 
-    girth = np.sqrt(np.square(boundary[1:,0] - boundary[0:-1,0]) + np.square(boundary[1:,1] - boundary[0:-1,1]))
-    girth = np.sum(girth) 
-    
-    roundness1 = 4 * np.pi * area / np.power(girth,2)
-    # Output mRNA class
-    x = boundary[0:-1,0]
-    y = boundary[0:-1,1]
-    distance = np.mean(np.sqrt(np.square(x - center_x) + np.square(y - center_y)))
-    sigma = np.sum(np.square(np.sqrt(np.square(x - center_x) + np.square(y - center_y)) - distance)) / len(x)
-    roundness2 = 1 - np.sqrt(sigma) / distance
-    
-    boundary = np.round(boundary, 4)
-    #boundary = np.round(boundary, 4).tolist()
-    
-    cell_feature_this['center_x'] = center_x
-    cell_feature_this['center_y'] = center_y
-    cell_feature_this['boundary'] = boundary
-    cell_feature_this['girth'] = girth
-    cell_feature_this['area'] = area
-    cell_feature_this['roundness'] = roundness1
-    #cell_feature_this['roundness2'] = roundness2
-    cell_feature_this['index'] = cell_name
-    
-    return(cell_feature_this)
 
 
 
-def calculate_cell_feature(sub_data, cell_id, cell_count_cutoff, alphashape_value):
-    
-    """
-    Apply alphashape for post-processing of aligned cells. Then calculated multiple
-    features for aligned cells.
 
-    Parameters
-    ----------
-    sub_data : Pandas DataFrame, required
-        Aligned cells related transcript coordinates.
-        
-    cell_id : str, required
-        cell_name
+def get_boundary(sub_data, scale, smooth_boundary, alphashape_value):
 
-    cell_count_cutoff : int, required
-        cutoff of transcripts number of aligned cells
-
-    alphashape_value : float, required
-        alpha value for alphashape program
-        
-
-    Returns
-    -------
-    result : dict()
-        Dictionary of cell features for aligned cells.
-    """
-    
-    if len(sub_data) < cell_count_cutoff:
-        return([],[],False)
     
     mean_x = np.mean(sub_data['x'])
     mean_y = np.mean(sub_data['y'])
@@ -164,7 +75,7 @@ def calculate_cell_feature(sub_data, cell_id, cell_count_cutoff, alphashape_valu
     
     max_x = np.max(np.abs(x))
     max_y = np.max(np.abs(y))
-    max_value = max(max_x, max_y)
+    max_value = scale
     
     x_norm = x / max_value
     y_norm = y / max_value
@@ -172,69 +83,136 @@ def calculate_cell_feature(sub_data, cell_id, cell_count_cutoff, alphashape_valu
     points  = np.asarray([x_norm,y_norm], dtype=np.float32).T
 
     alpha_shape = alphashape.alphashape(points, alphashape_value)
-    
-    cell_feature = []
-    
-    index = 1
-    if alpha_shape.type == 'MultiPolygon':
-        
-        for each in alpha_shape:
-            cell_name = str(cell_id) + "_" + str(index)
-            cell_feature_this = calculate_cell_feature_each(each, max_value, mean_x, mean_y, cell_name)
-            cell_feature.append(cell_feature_this)
-            index += 1
 
-    elif alpha_shape.type == 'Polygon':
-        cell_name = str(cell_id) + "_" + str(index)
-        cell_feature_this = calculate_cell_feature_each(alpha_shape, max_value, mean_x, mean_y, cell_name)
-        cell_feature.append(cell_feature_this)
+    if alpha_shape.geom_type != 'MultiPolygon' and alpha_shape.geom_type != 'Polygon':
+        return(np.asarray([]))
+     
+
+    if alpha_shape.geom_type == 'MultiPolygon':
+        alpha_shape_use = get_largest_polygon(alpha_shape)
+    elif alpha_shape.geom_type == 'Polygon':
+        alpha_shape_use = alpha_shape
     else:
-        return([],[],False)
-            
-    polygon_list = []
-    for i in range(len(cell_feature)):
-        polygon_list.append(Polygon(cell_feature[i]['boundary']))
-    
+        alpha_shape_use = alpha_shape.geoms[0]
+
+    x_center, y_center = np.asarray(alpha_shape_use.centroid.xy)
         
-    result_class = []
-    for i in range(len(x)):
-        is_class1 = False
-        for j in range(len(cell_feature)):
-            is_class2 = False
-            boundary_this = cell_feature[j]['boundary']
-            for k in range(len(boundary_this)):
-                x_new = 0.999999 * (x[i] + mean_x) + 0.000001 * boundary_this[k,0]
-                y_new = 0.999999 * (y[i] + mean_y) + 0.000001 * boundary_this[k,1]
-                bool_this = polygon_list[j].contains(shapely.geometry.Point(x_new, y_new))
-                if bool_this:
-                    result_class.append(str(cell_id) + '_' + str(j+1))
-                    is_class1 = True
-                    is_class2 = True
-                    break
-            if is_class2:
-                break
-        if not is_class1:
-            result_class.append('0')
-            
-    result_dict = dict()
-    for each in result_class:
-        if not each in result_dict:
-            result_dict[each] = 0
-        result_dict[each] += 1
+    boundary_this = calculate_cell_feature_each(alpha_shape_use, max_value, smooth_boundary, mean_x, mean_y, x_center, y_center)
+    boundary_this = boundary_this[~np.isnan(boundary_this).any(axis=1)]
+
+    return(boundary_this)
+
+
+    
+def get_boundary_with_nuclei(sub_data, center, nuclei, scale, smooth_boundary, alphashape_value):
+    
+    if len(sub_data) <= 5:
+        return(nuclei)
+    
+    max_value = scale
+    mean_x = np.mean(sub_data[:, 0])
+    mean_y = np.mean(sub_data[:, 1])
+    x = np.asarray(sub_data[:, 0])
+    y = np.asarray(sub_data[:, 1])
+    x = x - mean_x
+    y = y - mean_y
+    
+    if np.sum(np.abs(x)) < 1e-5 or np.sum(np.abs(y)) < 1e-5:
+        x = x + np.random.randn(len(x)) * 1e-10
+        y = y + np.random.randn(len(y)) * 1e-10
+    
+    x_norm = x / max_value
+    y_norm = y / max_value
+    points  = np.asarray([x_norm,y_norm], dtype=np.float32).T
+    
+    x = np.asarray(nuclei[:, 0])
+    y = np.asarray(nuclei[:, 1])
+    x = x - mean_x
+    y = y - mean_y
+    
+    if np.sum(np.abs(x)) < 1e-5 or np.sum(np.abs(y)) < 1e-5:
+        x = x + np.random.randn(len(x)) * 1e-10
+        y = y + np.random.randn(len(y)) * 1e-10
+    
+    x_norm = x / max_value
+    y_norm = y / max_value
+    nuclei_boundary  = Polygon(np.asarray([x_norm,y_norm], dtype=np.float32).T)
+    if not nuclei_boundary.is_valid:
+        nuclei_boundary = nuclei_boundary.buffer(0)
+
+    alpha_shape = alphashape.alphashape(points, alphashape_value)
+
+    if alpha_shape.geom_type != 'MultiPolygon' and alpha_shape.geom_type != 'Polygon':
+        return(nuclei)
+
+    if alpha_shape.geom_type == 'MultiPolygon':
+        max_area = 0
+        alpha_shape_use = alpha_shape.geoms[0]
+        for each in alpha_shape.geoms:
+            area_this = each.intersection(nuclei_boundary).area
+            if area_this > max_area:
+                max_area = area_this
+                alpha_shape_use = each
+    elif alpha_shape.geom_type == 'Polygon':
+        alpha_shape_use = alpha_shape
+    else:
+        alpha_shape_use = nuclei_boundary
         
-    for i in range(len(cell_feature)):
-        if cell_feature[i]['index'] in result_dict:
-            cell_feature[i]['mRNA_count'] = result_dict[cell_feature[i]['index']]
-        else:
-            cell_feature[i]['mRNA_count'] = 0
-        if cell_feature[i]['mRNA_count'] >= cell_count_cutoff:
-            cell_feature[i]['is_true_cell'] = True
-        else:
-            cell_feature[i]['is_true_cell'] = False
+    if not alpha_shape_use.intersection(nuclei_boundary).area == 0:
+        alpha_shape_use = alpha_shape_use.union(nuclei_boundary)
+    else:
+        alpha_shape_use = nuclei_boundary
+        
+    if not alpha_shape_use.geom_type == 'Polygon':
+        alpha_shape_use = alpha_shape_use.geoms[0]
+
+    x_center = (center['x'] - mean_x) / max_value
+    y_center = (center['y'] - mean_y) / max_value
+
+    boundary_this = calculate_cell_feature_each(alpha_shape_use,  max_value, smooth_boundary, mean_x, mean_y, x_center, y_center)
+    boundary_this = boundary_this[~np.isnan(boundary_this).any(axis=1)]
+
+    return(boundary_this)
+
+
+def get_largest_polygon(multi_poly):
+    if not isinstance(multi_poly, MultiPolygon):
+        return multi_poly
+    return max(multi_poly.geoms, key=lambda p: p.area)
+
+
+def smooth_polygon(polygon, n_points=50, s=0):
+    x, y = polygon.exterior.xy
+    x, y = np.array(x), np.array(y)
+    tck, u = interpolate.splprep([x, y], s=s, per=True)
+    #tck, u = interpolate.splprep([x, y], per=True)
+    t_new = np.linspace(0, 1, n_points)
+    x_smooth, y_smooth = interpolate.splev(t_new, tck)
+    return Polygon(np.column_stack([x_smooth, y_smooth]))
+
+
+
+def calculate_cell_feature_each(each, max_value, smooth_boundary, mean_x, mean_y, x_center, y_center):
+
+    smoothed = smooth_polygon(each, n_points=50, s=smooth_boundary)
     
-    sub_data['result_class'] = result_class
+  
+    x_new, y_new = smoothed.exterior.xy
+    x_new, y_new = np.array(x_new), np.array(y_new)
+    value = np.abs(x_new - x_center) + np.abs(y_new - y_center)
+    x_new = x_new + 0.025 * (x_new - x_center) / value * 6.5
+    y_new = y_new + 0.025 * (y_new - y_center) / value * 6.5
+    x_new = x_new * max_value + mean_x
+    y_new = y_new * max_value + mean_y
     
-    return(cell_feature, sub_data, True)
+    boundary = np.asarray([x_new, y_new]).T
+
+    return(boundary)
+
+
+
+    
+    
 
 class alignment(nn.Module):
     
@@ -252,7 +230,7 @@ class alignment(nn.Module):
         torch.backends.cudnn.deterministic = True
     
     
-    def coordinate_normalization(self, coordinate, candidate_cell_center):
+    def coordinate_normalization(self, coordinate, candidate_cell_center, candidate_boundary=None):
         
         """
         Co-normalize coordinate of transcripts and candidate cell center
@@ -283,10 +261,17 @@ class alignment(nn.Module):
         xy_std = torch.std(xy_index)
         self.xy_index = (xy_index - xy_mean) / xy_std
         
-        coordinate_normal = (torch.from_numpy(coordinate_normal) - xy_mean) / xy_std
-        coordinate_cell_center = (torch.from_numpy(coordinate_cell_center) - xy_mean) / xy_std
+        coordinate_normal = (torch.from_numpy(coordinate_normal).type(torch.float32) - xy_mean) / xy_std
+        coordinate_cell_center = (torch.from_numpy(coordinate_cell_center).type(torch.float32) - xy_mean) / xy_std
 
-        return(coordinate_normal, coordinate_cell_center)
+        if candidate_boundary is not None:
+            center_x = (candidate_boundary[:,0] - min_x) / (max_x - min_x) * up_x
+            center_y = (candidate_boundary[:,1] - min_y) / (max_y - min_y) * up_y
+            coordinate_boundary = np.asarray([center_x, center_y]).T
+            coordinate_boundary = (torch.from_numpy(coordinate_boundary).type(torch.float32) - xy_mean) / xy_std
+            return(coordinate_normal, coordinate_cell_center, coordinate_boundary)
+        else:
+            return(coordinate_normal, coordinate_cell_center)
     
     
     
@@ -294,7 +279,7 @@ class alignment(nn.Module):
     def build_graph(self, coordinate_normal, coordinate_cell_center):
         
         """
-        Build KNN-Graph for downstream cell alignment.
+        Build KNN-Graph for cell segmentation.
         """
         
         tree = spatial.KDTree(data=coordinate_normal)
@@ -312,24 +297,70 @@ class alignment(nn.Module):
         
         self.distance2 = distance2  
         cutoff = torch.sort(self.distance2, descending=True).values[[int(len(self.distance2) * self.distance_percentage_cutoff)]]
-        #distance_score = torch.round(self.distance2 / (cutoff / 1000)) / 1000
         distance_score = self.distance2 / cutoff
         distance_score[distance_score >= 1] = 1
-        #distance_score = torch.log(self.distance2 + 1)
-        #distance_score = distance_score / torch.max(distance_score)
         distance_score = 1 - distance_score
-        #distance_score  = torch.exp(log_P1)
-        #distance_score = 1 - torch.tanh(self.distance2)
-        #distance_score[distance2 < 1] = 2 * torch.max(distance_score) - distance_score[distance2 < 1]
-        #distance_score = (distance_score - torch.min(distance_score)) / (torch.max(distance_score) - torch.min(distance_score))
-        #distance_score[distance2 < 1] = 1
-        #distance_score = (distance_score - torch.mean(distance_score)) / torch.std(distance_score)
         self.distance_score = distance_score.type(torch.float32).to(self.device)
-        
         
         tree = spatial.KDTree(data=coordinate_cell_center)
         nearest_neibor = tree.query(coordinate_normal,k=self.k_number,workers=self.worker_number)
         self.candidate = torch.from_numpy(nearest_neibor[1])
+
+
+    def build_graph_with_prior(self, coordinate_normal, coordinate_cell_center, coordinate_boundary, class_boundary):
+        
+        """
+        Build KNN-Graph with prior nuclei boundary for cell segmentation.
+        """
+        
+        tree = spatial.KDTree(data=coordinate_normal)
+
+        nearest_neibor = tree.query(coordinate_normal,k=self.k_number_for_distance+1,workers=self.worker_number)
+        distance = torch.tensor(nearest_neibor[0][:,1:] / np.mean(nearest_neibor[0][:,1:])).reshape(-1)
+       
+        
+        distance2 = torch.mean(distance.reshape((-1,self.k_number_for_distance)), dim=1)
+        
+        mean_value = torch.mean(distance2)
+        std_value = torch.std(distance2)
+        N = torch.distributions.Normal(mean_value, std_value)
+        log_P1 = N.log_prob(distance2)
+        
+        self.distance2 = distance2  
+        cutoff = torch.sort(self.distance2, descending=True).values[[int(len(self.distance2) * self.distance_percentage_cutoff)]]
+        distance_score = self.distance2 / cutoff
+        distance_score[distance_score >= 1] = 1
+        distance_score = 1 - distance_score
+        self.distance_score = distance_score.type(torch.float32).to(self.device)
+
+
+
+        coordinate_normal = coordinate_normal.numpy()
+        coordinate_cell_center = coordinate_cell_center.numpy()
+        coordinate_boundary = coordinate_boundary.numpy()
+        
+        tree = spatial.KDTree(data=coordinate_cell_center)
+        nearest_neibor = tree.query(coordinate_normal, k=self.k_number, workers=self.worker_number)
+        self.candidate = np.asarray(nearest_neibor[1])
+
+
+        nuclei2boundary = dict()
+        for i in range(len(class_boundary)):
+            if not class_boundary[i] in nuclei2boundary:
+                nuclei2boundary[class_boundary[i]] = []
+            nuclei2boundary[class_boundary[i]].append(coordinate_boundary[i,])
+        
+        for each in nuclei2boundary:
+            nuclei2boundary[each] = Polygon(np.asarray(nuclei2boundary[each]))
+
+
+        polygons = np.array([nuclei2boundary[idx] for idx in self.candidate.ravel()])
+        coordinate_normal2 = shapely.points(np.repeat(coordinate_normal, repeats=self.candidate.shape[1], axis=0))
+        distances = shapely.distance(polygons, coordinate_normal2)
+        self.all_delta = torch.from_numpy(distances.reshape(self.candidate.shape).astype(np.float32))
+        self.candidate = torch.from_numpy(self.candidate)
+
+
         
         
     def prepare_sc_data(self, sc_data):
@@ -348,21 +379,6 @@ class alignment(nn.Module):
         self.sc_data_all_gene = self.sc_data_all_gene[sc_data.obs_names, :]
         
         
-        '''
-        anno = sc_data.obs['annotation']
-        anno_class = list(set(sc_data.obs['annotation']))
-        single_cell_id = []
-        for each in anno_class:
-            temp = anno[anno == each]
-            print(len(temp))
-            if len(temp) <= 1000:
-                single_cell_id.extend(temp.index)
-            else:
-                single_cell_id.extend(temp.index[torch.randperm(len(temp)).numpy()[0:1000]])
-        self.sc_data = sc_data[single_cell_id,:]
-        self.sc_expression = torch.from_numpy(np.asarray(sc_data.to_df()))
-        #self.sc_data_all_gene = self.sc_data_all_gene[sc_data.obs_names, :]
-        ''' 
         
         self.sc_data = sc_data
         self.sc_expression = torch.from_numpy(np.asarray(sc_data.to_df())).to(self.device)
@@ -424,8 +440,9 @@ class alignment(nn.Module):
     def __init__(self, 
                  coordinate, 
                  gene,
-                 candidate_cell_center, 
+                 data_prior, 
                  sc_data,
+                 scale = 6.5,
                  cell_count_cutoff = 10,
                  number_min_genes = 10,
                  number_cell_state = 10,
@@ -435,6 +452,8 @@ class alignment(nn.Module):
                  alphashape_value = 5,
                  top_N_single_cell = 20,
                  worker_number = 1,
+                 smooth_boundary = 0.2,
+                 boundary_prior = False,
                  output_dir = "./",
                  device='cpu'):
         
@@ -449,9 +468,10 @@ class alignment(nn.Module):
         gene : list, required
             Gene name of transcrips
 
-        candidate_cell_center : Numpy Array, required
-            Coordinates of candidate cell centers. This can be obtained by center_selection
-            program.
+        data_prior : pandas DataFrame, required
+            Must contain x, y and cell_id columns.
+            The data prior can be either a cell location prior (each cell_id corresponds to one x and y) 
+            or a nuclear boundary prior (each cell_id corresponds to multiple x and y).
 
         sc_data : Scanpy AnnData, required
             Scanpy AnnData of single cell reference. Must include annotation information.
@@ -468,10 +488,10 @@ class alignment(nn.Module):
         number_cell_state : int, default=10
             Number of cell state for each cell type reference.
         
-        k_number : int, default=100
+        k_number : int, default=8
             k_number for KNN-graph.
             
-        k_number_for_distance: int, default=8
+        k_number_for_distance: int, default=100
             k_number for calculating distance score
             
         quantile_cutoff : float, default=0.999
@@ -483,6 +503,12 @@ class alignment(nn.Module):
             
         top_N_single_cell: int, default=20
             Number of single cell used for cell type inference and expression prediction.
+
+        smooth_boundary: float, default=0
+            The degree of boundary smoothing; the smaller the value, the less smooth the boundary, with a minimum of 0.
+
+        boundary_prior: boolean, default=False
+            False represents using cell location as the prior, True represents using nuclear boundary.
             
         worker_number : int, default=1
             Number of CPU cores.
@@ -502,6 +528,7 @@ class alignment(nn.Module):
         
         self.setup_seed(0)
         self.device = device
+        self.boundary_prior = boundary_prior
         self.output_dir = output_dir
         
         self.k_number = int(k_number)
@@ -510,8 +537,9 @@ class alignment(nn.Module):
         self.number_min_genes = int(number_min_genes)
         
         
-
-        self.cell_number = len(candidate_cell_center)
+        self.scale = scale
+        self.smooth_boundary = smooth_boundary
+        self.cell_number = len(np.unique(data_prior['cell_id']))
         self.mRNA_number = len(coordinate)
         self.number_cell_state = number_cell_state
         self.distance_percentage_cutoff = 1 - quantile_cutoff
@@ -527,14 +555,48 @@ class alignment(nn.Module):
         
         
         self.gene = gene
-        
-        
         self.coordinate = coordinate
-        self.coordinate_normal, self.coordinate_cell_center = self.coordinate_normalization(coordinate, candidate_cell_center)
-        self.build_graph(self.coordinate_normal, self.coordinate_cell_center)
-        self.prepare_sc_data(sc_data)
+
         
-        self.coordinate_cell_center = torch.tensor(self.coordinate_cell_center).to(self.device)
+        
+        if self.boundary_prior:
+            boundary = np.float32(data_prior[['x','y']])
+            cell_id = data_prior['cell_id']
+            x = data_prior['x']
+            y = data_prior['y']
+            nuclei2boundary = dict()
+            cell2index = dict()
+            index = 0
+            for i in range(len(cell_id)):
+                if not cell_id[i] in cell2index:
+                    cell2index[cell_id[i]] = index
+                    index += 1
+            for i in range(len(cell_id)):
+                if not cell2index[cell_id[i]] in nuclei2boundary:
+                    nuclei2boundary[cell2index[cell_id[i]]] = []
+                nuclei2boundary[cell2index[cell_id[i]]].append([x[i],y[i]])
+            candidate_cell_center = []
+            for each in nuclei2boundary:
+                nuclei2boundary[each] = np.asarray(nuclei2boundary[each])
+                candidate_cell_center.append(np.asarray(Polygon(nuclei2boundary[each]).centroid.xy).T)
+            candidate_cell_center = np.concatenate(candidate_cell_center, axis=0)
+            
+            class_boundary = []
+            for i in range(len(cell_id)):
+                class_boundary.append(cell2index[cell_id[i]])
+            
+            self.coordinate_normal, self.coordinate_cell_center, self.coordinate_boundary = self.coordinate_normalization(coordinate, candidate_cell_center, boundary)
+            self.build_graph_with_prior(self.coordinate_normal, self.coordinate_cell_center, self.coordinate_boundary, class_boundary)
+            self.nuclei2boundary = nuclei2boundary
+
+
+        else:
+            candidate_cell_center = np.float32(data_prior[['x','y']])
+            self.coordinate_normal, self.coordinate_cell_center = self.coordinate_normalization(coordinate, candidate_cell_center)
+            self.build_graph(self.coordinate_normal, self.coordinate_cell_center)
+            self.coordinate_cell_center = torch.tensor(np.float32(self.coordinate_cell_center)).to(self.device)
+        
+        self.prepare_sc_data(sc_data)
         
         
         
@@ -646,9 +708,13 @@ class alignment(nn.Module):
                 
                 ratio = upper / self.mRNA_number
                 
-                mRNA_feature = self.xy_index[shuffle_this,:]
+                
                 candidate_this = self.candidate[shuffle_this,:]
                 gene_this = self.gene_index[shuffle_this]
+                if self.boundary_prior:
+                    mRNA_feature = self.all_delta[shuffle_this,:]
+                else:
+                    mRNA_feature = self.xy_index[shuffle_this,:]
                 
                 batch_loss, mRNA_label_this, del_mRNA_this = self.batch_mRNA(ratio, lower, upper, mRNA_feature, candidate_this, gene_this, shuffle_this, True)
                 
@@ -696,11 +762,12 @@ class alignment(nn.Module):
             shuffle_this = shuffle[lower:upper]
             
             ratio = upper / self.mRNA_number
-            xy_index_this = self.xy_index[shuffle_this,:]
             candidate_this = self.candidate[shuffle_this,:]
             gene_this = self.gene_index[shuffle_this]
-            mRNA_feature = xy_index_this.to(self.device)
-            
+            if self.boundary_prior:
+                mRNA_feature = self.all_delta[shuffle_this,:]
+            else:
+                mRNA_feature = self.xy_index[shuffle_this,:]
            
             batch_loss, mRNA_label_this, del_mRNA_this = self.batch_mRNA(ratio, lower, upper, mRNA_feature, candidate_this, gene_this, shuffle_this, False)
             mRNA_label[shuffle_this,:] = mRNA_label_this.detach().cpu()
@@ -740,18 +807,21 @@ class alignment(nn.Module):
         self.mRNA_feature = mRNA_feature.to(self.device)
         self.is_train = is_train
             
-        self.mean_cell = torch.concat([self.mean_cell_x.reshape(-1,1), self.mean_cell_y.reshape(-1,1)], dim=1)        
+              
         
-        
-        
-        #self.within_distance = torch.sqrt(torch.sum(torch.square(self.mRNA_feature.repeat((1,self.k_number)).reshape(-1,2) - self.mean_cell[self.candidate_this.reshape(-1)]), dim=1)).reshape(-1,self.k_number)
-        #self.within_distance = self.within_distance / (torch.min(self.within_distance, dim=1).values[:,None] + 1e-4)
-        #self.within_distance = 1 / torch.sqrt(self.within_distance)
-        #self.mRNA_label = torch.sqrt(torch.sum(torch.square(self.mRNA_feature.repeat((1,self.k_number)).reshape(-1,2) - self.mean_cell[self.candidate_this.reshape(-1)]), dim=1)).reshape(-1,1)
-        #self.mRNA_label = self.location2feature(self.mRNA_label)
-        self.mRNA_label = torch.relu(self.location2feature1((self.mRNA_feature.repeat((1,self.k_number)).reshape(-1,2) - self.mean_cell[self.candidate_this.reshape(-1)])))
-        self.mRNA_label = self.layer_norm(self.location2feature2(self.mRNA_label))
-        
+        if self.boundary_prior:
+
+            self.mRNA_label = torch.relu(self.location2feature1(torch.concat([self.mRNA_feature.reshape(-1,1), self.mRNA_feature.reshape(-1,1)], dim=1)))
+            #self.mRNA_label = torch.relu(self.location2feature1((self.mRNA_feature.repeat((1,self.k_number)).reshape(-1,2) - self.coordinate_cell_center[self.candidate_this.reshape(-1)])))
+            self.mRNA_label = self.layer_norm(self.location2feature2(self.mRNA_label))
+        else:
+            self.mean_cell = torch.concat([self.mean_cell_x.reshape(-1,1), self.mean_cell_y.reshape(-1,1)], dim=1)  
+            self.mRNA_label = torch.relu(self.location2feature1((self.mRNA_feature.repeat((1,self.k_number)).reshape(-1,2) - self.mean_cell[self.candidate_this.reshape(-1)])))
+            self.mRNA_label = self.layer_norm(self.location2feature2(self.mRNA_label))
+
+
+
+
         if self.is_train:
             
             self.mRNA_label = self.dropout(self.mRNA_label + \
@@ -773,7 +843,7 @@ class alignment(nn.Module):
         
         if is_train:
             
-            self.mRNA_label = self.dropout(self.mRNA_label)
+            #self.mRNA_label = self.dropout(self.mRNA_label)
             #self.mRNA_label = torch.softmax(self.mRNA_label, dim=-1)
         
             #self.dist = Categorical(probs=self.mRNA_label)
@@ -806,32 +876,29 @@ class alignment(nn.Module):
         self.del_mRNA = self.noise_action == 0  
         self.real_mRNA = self.noise_action == 1
         
-        #self.cell_x[self.choose_cell_this[self.real_mRNA]] += self.mRNA_feature[self.real_mRNA,0]
-        #self.cell_y[self.choose_cell_this[self.real_mRNA]] += self.mRNA_feature[self.real_mRNA,1]
-        
-        self.center_index = torch.stack([self.choose_cell_this.reshape(-1), torch.zeros(len(self.choose_cell_this)).to(self.device)], dim=0)
-        self.x_sparse = torch.sparse_coo_tensor(self.center_index, self.noise_action * self.mRNA_feature[:,0], (self.cell_number, 1))
-        self.y_sparse = torch.sparse_coo_tensor(self.center_index, self.noise_action * self.mRNA_feature[:,1], (self.cell_number, 1))
-        self.cell_x = self.cell_x + self.x_sparse.to_dense().reshape(-1)
-        self.cell_y = self.cell_y + self.y_sparse.to_dense().reshape(-1)
 
-       
-        #self.cell_expression_similarity_normal1 = self.delta_expression[self.choose_cell_this, self.gene_this] * (1 - self.cell_expression_similarity[self.choose_cell_this])
-        #self.cell_expression_similarity_normal2 = (1 - self.delta_expression[self.choose_cell_this, self.gene_this]) * (1 - self.cell_expression_similarity[self.choose_cell_this])
-        ##self.cell_expression_similarity_normal2 = (self.delta_expression[self.choose_cell_this, self.gene_this].detach()) * (1 - self.cell_expression_similarity[self.choose_cell_this].detach())
-        #self.cell_expression_similarity_normal1 = (self.delta_expression[self.choose_cell_this, self.gene_this].detach()) * (1 - self.cell_expression_similarity[self.choose_cell_this].detach())
-        #self.cell_expression_similarity_normal2 = (1 - self.delta_expression[self.choose_cell_this, self.gene_this].detach()) * (1 - self.cell_expression_similarity[self.choose_cell_this].detach())
         self.cell_expression_similarity_normal1 = (self.delta_expression[self.choose_cell_this, self.gene_this].detach())
         self.cell_expression_similarity_normal2 = (1 - self.delta_expression[self.choose_cell_this, self.gene_this].detach())
 
         
 
-
-        #self.delta_x = self.mRNA_feature[:,0] - self.coordinate_cell_center[self.choose_cell_this][:,0]
-        #self.delta_y = self.mRNA_feature[:,1] - self.coordinate_cell_center[self.choose_cell_this][:,1]
-        self.delta_x = self.mRNA_feature[:,0] - self.mean_cell[self.choose_cell_this][:,0]
-        self.delta_y = self.mRNA_feature[:,1] - self.mean_cell[self.choose_cell_this][:,1]
-        self.delta_score = torch.sqrt((torch.square(self.delta_x) + torch.square(self.delta_y)) / 2)
+        if self.boundary_prior:
+            #self.delta_x = self.mRNA_feature[:,0] - self.coordinate_cell_center[self.choose_cell_this][:,0]
+            #self.delta_y = self.mRNA_feature[:,1] - self.coordinate_cell_center[self.choose_cell_this][:,1]
+            #self.delta_x = self.all_delta[self.shuffle_this, self.choose_cell_this].to(self.device)
+            #self.delta_y = self.all_delta[self.shuffle_this, self.choose_cell_this].to(self.device)
+            #self.delta_score = self.mRNA_feature[:,self.choose_cell_this].to(self.device)
+            #self.delta_score = torch.gather(self.mRNA_feature, 1, self.action) 
+            self.delta_score = torch.gather(self.mRNA_feature, 1, self.action.unsqueeze(1)).reshape(-1)
+        else:
+            self.center_index = torch.stack([self.choose_cell_this.reshape(-1), torch.zeros(len(self.choose_cell_this)).to(self.device)], dim=0)
+            self.x_sparse = torch.sparse_coo_tensor(self.center_index, self.noise_action * self.mRNA_feature[:,0], (self.cell_number, 1))
+            self.y_sparse = torch.sparse_coo_tensor(self.center_index, self.noise_action * self.mRNA_feature[:,1], (self.cell_number, 1))
+            self.cell_x = self.cell_x + self.x_sparse.to_dense().reshape(-1)
+            self.cell_y = self.cell_y + self.y_sparse.to_dense().reshape(-1)
+            self.delta_x = self.mRNA_feature[:,0] - self.mean_cell[self.choose_cell_this][:,0]
+            self.delta_y = self.mRNA_feature[:,1] - self.mean_cell[self.choose_cell_this][:,1]
+            self.delta_score = torch.sqrt((torch.square(self.delta_x) + torch.square(self.delta_y)) / 2)
         cutoff = torch.sort(self.delta_score, descending=True).values[[int(len(self.delta_score) * 0.1)]]
         #distance_score = torch.round(self.distance2 / (cutoff / 1000)) / 1000
         self.delta_score = self.delta_score / cutoff
@@ -843,6 +910,8 @@ class alignment(nn.Module):
         #self.batch_reward2 = (1 - self.distance_score[self.shuffle_this]) * self.cell_expression_similarity_normal2 * self.within_distance[range(len(self.action)), self.action]
         self.batch_reward1 = (self.distance_score[self.shuffle_this]) * (self.cell_expression_similarity_normal1 * self.delta_score)
         self.batch_reward2 = (1 - self.distance_score[self.shuffle_this]) * (self.cell_expression_similarity_normal2 * self.delta_score)
+        #self.batch_reward1 = (self.distance_score[self.shuffle_this]) * (self.delta_score)
+        #self.batch_reward2 = (1 - self.distance_score[self.shuffle_this]) * (self.delta_score)
 
 
 
@@ -868,9 +937,10 @@ class alignment(nn.Module):
         
        
         if epoch == -1:
-            self.cell_count = torch.sum(self.cell_expression, dim=1)
-            self.mean_cell_x = self.cell_x / (self.cell_count + 1e-6)
-            self.mean_cell_y = self.cell_y / (self.cell_count + 1e-6)
+            if not self.boundary_prior:
+                self.cell_count = torch.sum(self.cell_expression, dim=1)
+                self.mean_cell_x = self.cell_x / (self.cell_count + 1e-6)
+                self.mean_cell_y = self.cell_y / (self.cell_count + 1e-6)
             self.analysis_expression()
             return(1)
         
@@ -879,13 +949,19 @@ class alignment(nn.Module):
         self.weight.requires_grad=True
         self.sc_drop.requires_grad=True
 
-        self.cell_count = torch.sum(self.cell_expression, dim=1)
-        self.mean_cell_x = self.cell_x / (self.cell_count + 1e-6)
-        self.mean_cell_y = self.cell_y / (self.cell_count + 1e-6)
+        if not self.boundary_prior:
+            self.cell_count = torch.sum(self.cell_expression, dim=1)
+            self.mean_cell_x = self.cell_x / (self.cell_count + 1e-6)
+            self.mean_cell_y = self.cell_y / (self.cell_count + 1e-6)
 
           
         deconvolution_loss = 0
         decon_size = 30
+
+        #haha = torch.sum(self.cell_expression[:,1:], dim=1)
+        #print(haha, len(haha[haha>0]))
+        #print(self.mRNA_feature)
+         
         for i in range(decon_size):
             self.analysis_expression()
             #cell_loss = (torch.mean((1 - self.cell_expression_similarity[self.true_cell]))).requires_grad_()
@@ -898,9 +974,6 @@ class alignment(nn.Module):
             self.optimizer2.step()
             
             
-            
-
-        
         self.weight_list.requires_grad=False
         self.weight.requires_grad=False
         self.sc_drop.requires_grad=False
@@ -940,7 +1013,8 @@ class alignment(nn.Module):
         self.predict_cell_expression = torch.matmul(self.weight_normal, self.expression_state)
         self.predict_cell_expression = self.predict_cell_expression / (torch.sum(self.predict_cell_expression, dim=1) + 1e-6)[:,None] * (self.expression_dim-1)
         self.cell_expression_similarity = torch.cosine_similarity(self.cell_expression[:,1:], self.predict_cell_expression, dim=1)
-        
+       
+
         self.cell_expression = self.cell_expression + 1e-6
         self.cell_expression = (self.cell_expression) / (torch.sum(self.cell_expression[:,1:],dim=1))[:,None] * (self.expression_dim-1)
         
@@ -963,7 +1037,188 @@ class alignment(nn.Module):
         self.loss_trans_sim = 1 * (torch.matmul(torch.sum(self.weight_use, dim=0), 1 - self.trans_similarity) / torch.sum(self.weight_use))
         
         self.cell_loss = (torch.mean((1 - self.cell_expression_similarity) + 1 * self.weight_entropy)).requires_grad_()
-    
+
+
+
+    def calculate_boundary(self, mRNA_class1):
+
+        noise_class = np.max(mRNA_class1)
+
+        if self.boundary_prior:
+
+            nuclei_center = []
+            for each in self.nuclei2boundary:
+                self.nuclei2boundary[each] = np.asarray(self.nuclei2boundary[each])
+                nuclei_center.append(np.asarray(Polygon(self.nuclei2boundary[each]).centroid.xy).T)
+            nuclei_center = np.concatenate(nuclei_center, axis=0)
+
+            
+            cell2point = dict()
+            cell2position = dict()
+            for i in range(len(nuclei_center)):
+                cell2position[i] = {}
+                cell2position[i]['x'] = float(nuclei_center[i,0])
+                cell2position[i]['y'] = float(nuclei_center[i,1])
+                cell2point[i] = []
+                
+
+            use_index = [i for i in range(len(mRNA_class1)) if not mRNA_class1[i] == noise_class]
+            x = [cell2position[int(index)]['x'] for index in mRNA_class1 if not index == noise_class]
+            y = [cell2position[int(index)]['y'] for index in mRNA_class1 if not index == noise_class]
+            x2 = self.coordinate[use_index,0]
+            y2 = self.coordinate[use_index,1]
+            distance = np.sqrt((np.square(x2 - x) + np.square(y2 - y))/2)
+            mRNA_class2 = mRNA_class1[use_index]
+            
+            for i in range(len(distance)):
+                if distance[i] <= self.scale * 2.56:
+                    cell2point[mRNA_class2[i]].append([x2[i], y2[i]])
+            for each in cell2point:
+                cell2point[each] = np.asarray(cell2point[each])
+
+
+            result = []
+            
+            pool = torch.multiprocessing.Pool(processes=self.worker_number)
+            for each in cell2point:
+                sub_data = cell2point[each]
+                center = cell2position[each]
+                nuclei = self.nuclei2boundary[each]
+                result.append(pool.apply_async(get_boundary_with_nuclei, args=(sub_data, center, nuclei, self.scale, self.smooth_boundary, self.alphashape_value,)))
+            pool.close()  
+            
+            cell2boundary = dict()
+            index = 0
+            for each in result:
+                boundary_this = each.get()
+                if len(boundary_this) > 0:
+                    cell2boundary[index] = boundary_this
+                    index += 1
+
+
+
+            nuclei_center_MultiPoint = MultiPoint(nuclei_center.tolist())
+            voronoi = voronoi_diagram(nuclei_center_MultiPoint)
+            voronoi_center = []
+            for i in range(len(voronoi.geoms)):
+                voronoi_center.append(np.asarray(voronoi.geoms[i].centroid.xy).T)
+            voronoi_center = np.concatenate(voronoi_center)
+            tree = spatial.KDTree(nuclei_center)
+            
+            voronoi2boundary = dict()
+            for i in range(len(voronoi.geoms)):
+                nearest_center = tree.query(voronoi_center[i,])
+                if Point(nuclei_center[nearest_center[1],]).within(voronoi.geoms[i]):
+                    voronoi2boundary[nearest_center[1]] = np.asarray(voronoi.geoms[i].exterior.xy).T
+                else:
+                    nearest_center = tree.query(voronoi_center[i,], k = len(voronoi_center))
+                    for j in range(len(nearest_center[0])):
+                        if Point(nuclei_center[nearest_center[1][j],]).within(voronoi.geoms[i]):
+                            voronoi2boundary[nearest_center[1]][j] = np.asarray(voronoi.geoms[i].exterior.xy).T
+                            break
+                    
+                
+            tree = spatial.KDTree(nuclei_center)
+            nearest_nuclei = tree.query(nuclei_center, k=10, workers=self.worker_number)
+            
+            for i in range(len(cell2boundary)):
+                candidate = nearest_nuclei[1][i,1:]
+                A = Polygon(cell2boundary[i]).buffer(0)
+                for each in candidate:
+                    B = Polygon(self.nuclei2boundary[each]).buffer(0)
+                    if A.intersects(B):
+                        inter_region = A.intersection(B)
+                        A = A.difference(B)
+                        if A.geom_type == 'MultiPolygon':
+                            A = get_largest_polygon(A)
+                        cell2boundary[i] = np.asarray(A.exterior.xy).T
+
+
+
+                   
+            for each in cell2boundary:
+                A = Polygon(cell2boundary[each]).buffer(0)
+                B = Polygon(self.nuclei2boundary[each]).buffer(0)
+                C = A.union(B).buffer(0)
+                if C.geom_type == 'MultiPolygon':
+                    C = get_largest_polygon(C)
+                cell2boundary[each] = np.asarray(C.exterior.xy).T
+
+
+
+
+            
+            for i in range(len(cell2boundary)):
+                candidate = nearest_nuclei[1][i,1:]
+                A = Polygon(cell2boundary[i]).buffer(0)
+                for j in candidate:
+                    B = Polygon(cell2boundary[j]).buffer(0)    
+                    if A.intersects(B):
+                        inter_region = A.intersection(B).buffer(0)
+                        A2 = Polygon(voronoi2boundary[i]).buffer(0)
+                        B2 = Polygon(voronoi2boundary[j]).buffer(0)
+                        try:
+                            A = A.difference(inter_region).buffer(0)
+                        except:
+                            A = A
+                        try:
+                            B = B.difference(inter_region).buffer(0)
+                        except:
+                            B = B
+                        inter_region_A = A2.intersection(inter_region)
+                        inter_region_B = B2.intersection(inter_region)
+                        A = A.union(inter_region_A).buffer(0)
+                        B = B.union(inter_region_B).buffer(0)
+                        if A.geom_type == 'MultiPolygon':
+                            A = get_largest_polygon(A)
+                        if B.geom_type == 'MultiPolygon':
+                            B = get_largest_polygon(B)
+                        cell2boundary[i] = np.asarray(A.exterior.xy).T
+                        cell2boundary[j] = np.asarray(B.exterior.xy).T
+
+        else:
+
+            x = list(self.coordinate[:,0])
+            y = list(self.coordinate[:,1])
+            
+            sub_data = dict()
+            for i in range(len(mRNA_class1)):
+                if mRNA_class1[i] == noise_class:
+                    continue
+                if not mRNA_class1[i] in sub_data:
+                    sub_data[mRNA_class1[i]] = dict()
+                    sub_data[mRNA_class1[i]]['x'] = []
+                    sub_data[mRNA_class1[i]]['y'] = []
+                    sub_data[mRNA_class1[i]]['mRNA_class'] = []
+                    sub_data[mRNA_class1[i]]['index'] = []
+                sub_data[mRNA_class1[i]]['x'].append(x[i])
+                sub_data[mRNA_class1[i]]['y'].append(y[i])
+                sub_data[mRNA_class1[i]]['mRNA_class'].append(mRNA_class1[i])
+                sub_data[mRNA_class1[i]]['index'].append(str(i))
+                
+            for each in sub_data:
+                sub_data[each] = pd.DataFrame(sub_data[each], index=sub_data[each]['index'])
+            
+            result = []
+            pool = torch.multiprocessing.Pool(processes=self.worker_number)
+            for each in sub_data:
+                result.append(pool.apply_async(get_boundary, args=(sub_data[each], self.scale, self.smooth_boundary, self.alphashape_value, )))
+            pool.close()
+
+
+            cell2boundary = dict()
+            index = 0
+            for each in result:
+                boundary_this = each.get()
+                if len(boundary_this) > 0:
+                    cell2boundary[index] = boundary_this
+                    index += 1
+
+        return(cell2boundary)
+
+        
+
+
     def post_process(self):
         
         print("\nPost processing ...")
@@ -971,109 +1226,75 @@ class alignment(nn.Module):
         if self.device == 'cuda':
             torch.cuda.empty_cache()
         
-        mRNA_class1 = list(self.mRNA_class.detach().numpy())
+        mRNA_class1 = self.mRNA_class.detach().numpy()
+        noise_class = np.max(mRNA_class1)
         use_cell = list(set(mRNA_class1))
         use_cell.sort()
         self.df_mRNA_class = pd.DataFrame()
         self.df_mRNA_class['x'] = self.coordinate[:,0]
         self.df_mRNA_class['y'] = self.coordinate[:,1]
         self.df_mRNA_class['mRNA_class'] = mRNA_class1
+
+        #self.df_mRNA_class.to_csv("initial_assignment.csv", index=False, sep='\t')
         
-        print("Managing class ...")
-        x = list(self.coordinate[:,0])
-        y = list(self.coordinate[:,1])
+
+        print("Generate boundary ...")
+        self.cell2boundary = self.calculate_boundary(mRNA_class1)
         
+        print("Transcripts assignment ...")
+
+        cell_center = []
+        for each in self.cell2boundary:
+            cell_center.append(np.mean(self.cell2boundary[each], axis=0))
+        cell_center = np.asarray(cell_center)
         
-        noise_class = np.max(mRNA_class1)
+        tree = spatial.KDTree(cell_center)
+        nearest_neibor = tree.query(self.coordinate, k=self.k_number, workers=self.worker_number)
         
-        sub_data = dict()
-        for i in range(len(mRNA_class1)):
+        for each in self.cell2boundary:
+            self.cell2boundary[each] = Polygon(self.cell2boundary[each])
+
+
+        
+        polygons = np.array([self.cell2boundary[idx] for idx in nearest_neibor[1].ravel()])
+        coordinate = shapely.points(np.repeat(self.coordinate, repeats=self.k_number, axis=0))
+        distances = shapely.distance(polygons, coordinate).reshape([len(self.coordinate), self.k_number])
+
+        '''
+        seg_expression = np.zeros([len(self.cell2boundary), int(torch.max(self.gene_index_ori)) + 1])
+        transcripts_assignment = np.zeros(distances.shape[0]) + noise_class
+        for i in range(distances.shape[0]):
             if mRNA_class1[i] == noise_class:
                 continue
-            if not mRNA_class1[i] in sub_data:
-                sub_data[mRNA_class1[i]] = dict()
-                sub_data[mRNA_class1[i]]['x'] = []
-                sub_data[mRNA_class1[i]]['y'] = []
-                sub_data[mRNA_class1[i]]['mRNA_class'] = []
-                sub_data[mRNA_class1[i]]['index'] = []
-            sub_data[mRNA_class1[i]]['x'].append(x[i])
-            sub_data[mRNA_class1[i]]['y'].append(y[i])
-            sub_data[mRNA_class1[i]]['mRNA_class'].append(mRNA_class1[i])
-            sub_data[mRNA_class1[i]]['index'].append(str(i))
-            
-        for each in sub_data:
-            sub_data[each] = pd.DataFrame(sub_data[each], index=sub_data[each]['index'])
+            gene_this = int(self.gene_index_ori[i])
+            for j in range(distances.shape[1]):
+                if distances[i, j] <= 1e-8:
+                    seg_expression[mRNA_class1[i], gene_this] += 1
+                    transcripts_assignment[i] = mRNA_class1[i]
+                    continue
+        '''
         
-        result = []
-        print("Generate boundary ...")
-        pool = torch.multiprocessing.Pool(processes=self.worker_number)
-        for each in sub_data:
-            result.append(pool.apply_async(calculate_cell_feature, args=(sub_data[each], each, self.cell_count_cutoff, self.alphashape_value, )))
-        pool.close()
-        
-        
-
-        cell_feature_list = []
-        sub_data_list = []
-        for each in result:
-            temp = each.get()
-            if temp[2]:
-                cell_feature_list.extend(temp[0])
-                sub_data_list.append(temp[1])
-                
+        seg_expression = np.zeros([len(self.cell2boundary), int(torch.max(self.gene_index_ori)) + 1])
+        transcripts_assignment = np.zeros(distances.shape[0]) + len(self.cell2boundary)
+        for i in range(distances.shape[0]):
+            if mRNA_class1[i] == noise_class:
+                continue
+            gene_this = int(self.gene_index_ori[i])
+            for j in range(distances.shape[1]):
+                if distances[i, j] <= 1e-8:
+                    seg_expression[nearest_neibor[1][i,j], gene_this] += 1
+                    transcripts_assignment[i] = nearest_neibor[1][i,j]
+                    continue
         
         
-        use_cell = dict()
-        index = 1
-        for each in cell_feature_list:
-            if each['is_true_cell']:
-                use_cell[each['index']] = index
-                index += 1
-                
-        print("Number of cells:", len(use_cell))
-            
-        
-        
-        sub_data_all = pd.concat(sub_data_list)  
-        
-        index2result_class = dict()
-        for a,b in zip(sub_data_all['index'], sub_data_all['result_class']):
-            index2result_class[int(a)] = b
-        mRNA_class2 = []
-        for i in range(len(mRNA_class1)):
-            if i in index2result_class:
-                temp = index2result_class[i]
-                if temp in use_cell:
-                    mRNA_class2.append(use_cell[temp])
-                else:
-                    mRNA_class2.append(0)
-            else:
-                mRNA_class2.append(0)
-        
-        
-        
-        mRNA_class = torch.tensor(np.asarray(mRNA_class2).reshape(-1))
-        mRNA_index = torch.stack([mRNA_class, self.gene_index_ori.reshape(-1)])
-        mRNA_sparse = torch.sparse_coo_tensor(mRNA_index, torch.ones(self.mRNA_number), (torch.max(mRNA_class)+1, torch.max(self.gene_index_ori)+1))
-        cell_expression = mRNA_sparse.to_dense().type(torch.int)
-        
-        cell_expression = cell_expression[1:,:]
         gene = list(set(self.gene))
         gene.sort()
-        self.df_cell_expression = pd.DataFrame(cell_expression.type(torch.long).numpy(), columns=gene)
-
         
+        seg_expression = pd.DataFrame(np.int32(seg_expression))
+        seg_expression.columns = gene
+        cell_expression = sc.AnnData(seg_expression)
         
-        
-        
-        cell2feature = dict()
-        for each in cell_feature_list:
-            if each['index'] in use_cell:
-                cell2feature[use_cell[each['index']]] = each
-
-        
-        
-        seg_expression = torch.from_numpy(np.asarray(self.df_cell_expression[self.inter_gene])).to(self.device)
+        seg_expression = torch.from_numpy(np.asarray(seg_expression[self.inter_gene])).to(self.device)
         seg_expression = seg_expression / (torch.sum(seg_expression, dim=1) + 1e-10)[:,None] * seg_expression.shape[1]
         self.sc_expression = self.sc_expression.to(self.device)
         self.sc_expression = self.sc_expression / (torch.sum(self.sc_expression, dim=1) + 1e-10)[:,None] * self.sc_expression.shape[1]
@@ -1085,13 +1306,13 @@ class alignment(nn.Module):
         cell_type_prob = dict()
         for each in annotation_class:
             cell_type_prob[each] = 0
-            
-            
- 
+
+    
+        print("Label transfering ...")
         TF = torch.zeros((seg_expression.shape[0], 2 * self.top_N_single_cell))
         houxuan = torch.zeros((seg_expression.shape[0], 2 * self.top_N_single_cell)).type(torch.long)
         pinshu = torch.zeros(self.sc_expression.shape[0])
-            
+        CT = []
         
         for i in range(len(seg_expression)):
             cell_type_prob_this = cell_type_prob.copy()
@@ -1104,10 +1325,10 @@ class alignment(nn.Module):
             topN_index = cos_sim_sort.indices[0:self.top_N_single_cell]
             topN_sim = cos_sim_sort.values[0:self.top_N_single_cell]
             #top_sim = cos_sim_sort.values[0].cpu().numpy()
-
+        
             for j in range(len(topN_index)):
                 cell_type_prob_this[self.annotation_ori[int(topN_index[j].cpu())]] += topN_sim[j].cpu().numpy()
-            #cell2feature[i+1]['top_similarity'] = top_sim
+         
             max_cell_type = each
             max_prob = 0
             for each in cell_type_prob_this:
@@ -1115,9 +1336,9 @@ class alignment(nn.Module):
                     max_prob = cell_type_prob_this[each]
                     max_cell_type = each
             if max_prob >= 0.5:
-                cell2feature[i+1]['cell_type'] = max_cell_type
+                CT.append(max_cell_type)
             else:
-                cell2feature[i+1]['cell_type'] = "UNK"
+                CT.append("UNK")
                 
             TF[i, :] = cos_sim_sort.values[0:2 * self.top_N_single_cell].cpu()
             houxuan[i, :] = cos_sim_sort.indices[0:2 * self.top_N_single_cell].cpu()
@@ -1136,76 +1357,80 @@ class alignment(nn.Module):
             weight = weight / torch.sum(weight) 
             value = sc_expression_all[choose_cell,:]
             seg_expression_predict[i,:] = torch.sum(value * weight[:,None], dim=0)
-            
-            '''
-            value = sc_expression_all[cos_sim_sort.indices[0:self.top_N_single_cell].cpu(),:]
-            weight = cos_sim_sort.values[0:self.top_N_single_cell].cpu()
-            weight = weight / torch.sum(weight)
-            seg_expression_predict[i,:] = torch.sum(value * weight[:,None], dim=0)
-            '''
-           
-        #self.df_seg_expression_predict = torch.round(seg_expression_predict).type(torch.int).numpy()
-        
 
-        self.df_cell2feature = pd.DataFrame(cell2feature).T
-        self.df_cell_expression.index = self.df_cell2feature.index
+
+        print("Generating output ...")
+        cell_feature = []
+        index = 1
+        mRNA_count = np.sum(cell_expression.to_df(), axis=1)
         
-        
-        add_gene = []
-        for each in self.sc_data_all_gene.var_names:
-            if each in self.df_cell_expression.columns:
-                add_gene.append(False)
+        cell_old2new = dict()
+        use_cell = []
+        for i in range(len(self.cell2boundary)):
+            if mRNA_count[i] >= self.cell_count_cutoff or self.boundary_prior: 
+                center_x, center_y = np.asarray(self.cell2boundary[i].centroid.xy)
+                area = self.cell2boundary[i].area
+                girth = self.cell2boundary[i].length
+                roundness = 4 * np.pi * area / np.power(girth, 2)
+                cell_feature.append({"cell_id":index, "center_x":float(center_x), "center_y":float(center_y), "girth":girth, "area":area, "roundness":roundness, "mRNA_count":mRNA_count[i], "cell_type":CT[i]})
+                cell_old2new[i] = index
+                index += 1
+                use_cell.append(True)
             else:
-                add_gene.append(True)
-         
-        '''
-        self.add_gene = add_gene
-        self.gene = gene
-        self.cell_expression = cell_expression
-        '''
+                use_cell.append(False)
+        self.df_cell_feature = pd.DataFrame(cell_feature)
 
-        #seg_expression_predict = seg_expression_predict[:,add_gene]
-        self.df_seg_expression_predict = seg_expression_predict / (torch.sum(seg_expression_predict, dim=1) + 1e-10)[:,None] * seg_expression_predict.shape[1]
-        self.df_seg_expression_predict = self.df_seg_expression_predict / (torch.sum(self.df_seg_expression_predict, dim=1) + 1e-10)[:,None] * self.df_seg_expression_predict.shape[1]
-        self.df_seg_expression_predict = pd.DataFrame(self.df_seg_expression_predict.numpy(), columns=list(self.sc_data_all_gene.var_names))
-        self.df_seg_expression_predict.index = self.df_cell2feature.index
+
+        cell_boundary = []
+        for i in range(len(self.cell2boundary)):
+            if use_cell[i]:
+                df_this = pd.DataFrame(np.asarray(self.cell2boundary[i].exterior.xy).T)
+                df_this.columns = ['x', 'y']
+                df_this['cell_id'] = cell_old2new[i]
+                cell_boundary.append(df_this)
+        
+        self.cell_boundary = pd.concat(cell_boundary, axis=0)
+
+        
+        transcripts_classification = []
+        for i in range(len(transcripts_assignment)):
+            if transcripts_assignment[i] in cell_old2new:
+                tag = cell_old2new[transcripts_assignment[i]]
+            else:
+                tag = 0
+            transcripts_classification.append({"x":self.coordinate[i,0], "y":self.coordinate[i,1], "mRNA_class":tag})
+        self.transcripts_classification = pd.DataFrame(transcripts_classification)
+
+        
+        self.cell_expression = cell_expression[use_cell,:]
+        self.cell_expression.obs_names = self.df_cell_feature['cell_id']
+        
+        self.cell_expression_predict = seg_expression_predict / (torch.sum(seg_expression_predict, dim=1) + 1e-10)[:,None] * seg_expression_predict.shape[1]
+        self.cell_expression_predict = self.cell_expression_predict / (torch.sum(self.cell_expression_predict, dim=1) + 1e-10)[:,None] * self.cell_expression_predict.shape[1]
+        self.cell_expression_predict = pd.DataFrame(self.cell_expression_predict.numpy(), columns=list(self.sc_data_all_gene.var_names))
+        self.cell_expression_predict = sc.AnnData(self.cell_expression_predict)
+        self.cell_expression_predict = self.cell_expression_predict[use_cell, :]
+        self.cell_expression_predict.obs_names = self.df_cell_feature['cell_id']
+    
+        self.output_result()
         
         
-        self.output_result(mRNA_class2)
-        
-        
-        
-    def output_result(self, mRNA_class2):
+    def output_result(self):
         
         print("\nOutput result ...")
         
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
             print("Creat output dir " + self.output_dir)
-        
-        
-        boundary = list(self.df_cell2feature['boundary'])
-        new_id = list(self.df_cell2feature.index)
-        import h5py
-        w = h5py.File(os.path.join(self.output_dir, "cell_boundary.h5"),'w')
-        for i in range(len(boundary)):
-            w.create_dataset(str(new_id[i]),data=boundary[i])
-        w.close()
 
-        del self.df_cell2feature['boundary']
-        del self.df_cell2feature['index']
-        del self.df_cell2feature['is_true_cell']
-        self.df_cell2feature.to_csv(os.path.join(self.output_dir, "cell_feature.csv"), sep='\t')
-        
-        self.df_cell_expression = sc.AnnData(self.df_cell_expression)
-        sc.write(os.path.join(self.output_dir, "cell_expression.h5ad"), self.df_cell_expression)
 
-        self.df_mRNA_class['mRNA_class'] = mRNA_class2
-        self.df_mRNA_class.to_csv(os.path.join(self.output_dir,"transcripts_classification.csv"), index=False, sep='\t')
-        
-        self.df_seg_expression_predict = sc.AnnData(self.df_seg_expression_predict)
-        sc.write(os.path.join(self.output_dir, "cell_expression.predict.h5ad"), self.df_seg_expression_predict)
-        
+        self.df_cell_feature.to_csv(os.path.join(self.output_dir, "cell_feature.csv"), sep='\t', index=False)
+        self.cell_boundary.to_csv(os.path.join(self.output_dir, "cell_boundary.csv"), sep='\t', index=False)
+        self.transcripts_classification.to_csv(os.path.join(self.output_dir, "transcripts_classification.csv"), sep='\t', index=False)
+        sc.write(os.path.join(self.output_dir, "cell_expression.h5ad"), self.cell_expression)
+        sc.write(os.path.join(self.output_dir, "cell_expression.predict.h5ad"), self.cell_expression_predict)
+
+
         
      
 

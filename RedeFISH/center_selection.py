@@ -1,9 +1,32 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Thu Nov 23 12:57:01 2023
+# ----------------------------------------------------------------------------------------------
+#
+# File: RedeFISH.py
+#
+# System:         Linux, Windows
+# Component Name: center_selection
+# Version:        20260317
+# Language: python3
+# Latest Revision Time: 2026/03/17
+#
+# License: To-be-decided
+# Licensed Material - Property of CPNL.
+#
+# (c) Copyright CPNL. 2026
+#
+# Address:
+# 28#, ZGC Science and Technology Park, Changping District, Beijing, China
+#
+# Author: Zhong Yunshan
+# E-Mail: 327922729@qq.com
+#
+# Description: Main function of RedeFISH
+#W
+# Change History:
+# Date         Author            Description
+# 2026/03/17   Zhong Yunshan     Release v1.2.0
+# ------------------------------------------------------------------------------------
 
-@author: 32792
-"""
 
 import torch
 import os
@@ -117,8 +140,12 @@ class center_selection():
             
         
         self.post_process()
-        
-        return(self.cluster_centers)
+
+        df = pd.DataFrame(self.cluster_centers)
+        df.columns = ['x', 'y']
+        df['cell_id'] = df.index
+
+        return(df)
             
            
     def post_process(self):
@@ -222,11 +249,6 @@ class center_selection():
        
         
         return(all_center)
-
-
-     
-        
-        
         
         
     def gene_selection(self):
