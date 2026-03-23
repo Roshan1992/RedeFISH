@@ -67,7 +67,7 @@ __[2] An Anndata h5ad file for scRNA-seq data:__ This file must includes express
 
 __[3] (Optional) An csv file for nuclei boundary prior:__ This file must includes at least 3 columns, namely __x__, __y__ and corresponding __cell_id__.
 
-<img width="372" height="159" alt="image" src="https://github.com/user-attachments/assets/53589df5-e52d-4aef-a940-21cad16bd7ac" />
+<img width="369" height="219" alt="image" src="https://github.com/user-attachments/assets/28554f25-adb2-4673-8635-c1cf7f562a20" />
 
 Click <a href="https://drive.google.com/file/d/1_t5C9_1f0084w-iIAuz_xBUvNpp1vn2j/view?usp=drive_link" target="_blank">here</a> to access the example data for Human Breast Cancer and Human Lung Cancer datasets.
 
