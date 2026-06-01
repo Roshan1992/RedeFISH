@@ -65,7 +65,7 @@ __[2] An Anndata h5ad file for scRNA-seq data:__ This file must includes express
 
 ![image](https://user-images.githubusercontent.com/11591480/236605176-6551c703-e19b-42f0-9c43-4022e41b7eb4.png)
 
-__[3] (Optional) An csv file for nuclei boundary prior:__ This file must includes at least 3 columns, namely __x__, __y__ and corresponding __cell_id__.
+__[3] (Optional, but suggest) An csv file for nuclei boundary prior:__ This file must includes at least 3 columns, namely __x__, __y__ and corresponding __cell_id__.
 
 <img width="369" height="219" alt="image" src="https://github.com/user-attachments/assets/28554f25-adb2-4673-8635-c1cf7f562a20" />
 
@@ -103,7 +103,9 @@ __[4] transcripts_classification.csv:__ The result for transcript assignments. I
 
 __[5] cell_boundary.csv:__ A csv file contains polygonal regions of cell boundary for segmented cells.
 
+## Citation
 
+Zhong Y, Ren X. Cell Segmentation as Strategic Decision Making. Research 2026;9:Article 1304. https://doi.org/10.34133/research.1304
 
 
 
